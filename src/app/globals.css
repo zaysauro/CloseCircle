@@ -1,0 +1,2 @@
+@import 'tailwindcss';
+:root{color-scheme:dark}body{background:#090b17;color:#f3f1ff;font-family:Arial,Helvetica,sans-serif}button,a{transition:all .2s ease}::selection{background:#7964e9;color:white}
