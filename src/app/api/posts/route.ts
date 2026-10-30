@@ -1,20 +1,51 @@
-import {NextResponse} from "next/server";
-import {getIdentity} from "@/lib/identity";
-import {getSql} from "@/lib/db";
-export const runtime="nodejs";
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export async function GET(req:Request){
- try{const identity=await getIdentity();if(!identity)return NextResponse.json({error:"Não autorizado"},{status:401});
- const circleId=new URL(req.url).searchParams.get("circleId");if(!circleId||!uuid.test(circleId))return NextResponse.json({error:"Círculo inválido"},{status:400});
- const sql=getSql();const posts=await sql`select p.id,p.body,p.created_at,pr.name as author_name from posts p join profiles pr on pr.id=p.author_id where p.circle_id=${circleId}::uuid and exists(select 1 from circle_memberships m where m.circle_id=p.circle_id and m.user_id=${identity.id}::uuid) order by p.created_at desc limit 50`;
- return NextResponse.json({posts});}catch{return NextResponse.json({error:"Serviço indisponível"},{status:503})}
+import { getSql } from "@/lib/db";
+import { endpoint, member, uuid, text, ApiError } from "@/lib/http";
+export const runtime = "nodejs";
+export async function GET(req: Request) {
+  return endpoint(async (me) => {
+    const c = uuid(new URL(req.url).searchParams.get("circleId"));
+    await member(c, me.id);
+    const posts =
+      await getSql()`select p.id,p.author_id,p.body,p.created_at,pr.name as author_name,
+ (select count(*)::int from comments where post_id=p.id) as comment_count,
+ coalesce((select json_agg(json_build_object('emoji',r.emoji,'user_id',r.user_id)) from reactions r where r.post_id=p.id),'[]') as reactions,
+ coalesce((select json_agg(a.id) from attachments a where a.post_id=p.id),'[]') as attachments
+ from posts p join profiles pr on pr.id=p.author_id where p.circle_id=${c}::uuid order by p.created_at desc limit 50`;
+    return { posts };
+  });
 }
-export async function POST(req:Request){
- try{const identity=await getIdentity();if(!identity)return NextResponse.json({error:"Não autorizado"},{status:401});
- const data=await req.json();const circleId=typeof data?.circleId==="string"?data.circleId:"";const body=typeof data?.body==="string"?data.body.trim():"";
- if(!uuid.test(circleId)||body.length<1||body.length>5000)return NextResponse.json({error:"Publicação inválida"},{status:400});
- const sql=getSql();const rows=await sql`insert into posts(circle_id,author_id,body) select ${circleId}::uuid,${identity.id}::uuid,${body} where exists(select 1 from circle_memberships where circle_id=${circleId}::uuid and user_id=${identity.id}::uuid) returning id,body,created_at`;
- if(!rows.length)return NextResponse.json({error:"Você não participa deste círculo"},{status:403});
- return NextResponse.json({post:rows[0]},{status:201});
- }catch{return NextResponse.json({error:"Não foi possível publicar"},{status:503})}
+export async function POST(req: Request) {
+  return endpoint(async (me) => {
+    const d = await req.json(),
+      c = uuid(d.circleId),
+      body = text(d.body, 5000, 0);
+    await member(c, me.id);
+    let image: null | { mime: string; data: string } = null;
+    if (d.image) {
+      const match =
+        typeof d.image === "string" &&
+        d.image.match(
+          /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/,
+        );
+      if (!match) throw new ApiError("Envie uma imagem PNG, JPEG ou WebP");
+      const bytes = Buffer.from(match[2], "base64");
+      if (bytes.length > 2 * 1024 * 1024)
+        throw new ApiError("A imagem deve ter até 2 MB");
+      const valid =
+        match[1] === "image/png"
+          ? bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))
+          : match[1] === "image/jpeg"
+            ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+            : bytes.toString("ascii", 0, 4) === "RIFF" &&
+              bytes.toString("ascii", 8, 12) === "WEBP";
+      if (!valid) throw new ApiError("Arquivo de imagem inválido");
+      image = { mime: match[1], data: match[2] };
+    }
+    if (!body && !image) throw new ApiError("Escreva algo ou escolha uma foto");
+    const sql = getSql();
+    const rows = image
+      ? await sql`with p as (insert into posts(circle_id,author_id,body) values(${c}::uuid,${me.id}::uuid,${body}) returning id),a as (insert into attachments(circle_id,uploader_id,post_id,mime,data) select ${c}::uuid,${me.id}::uuid,id,${image.mime},${image.data} from p returning id) select id from p`
+      : await sql`insert into posts(circle_id,author_id,body) values(${c}::uuid,${me.id}::uuid,${body}) returning id`;
+    return { post: rows[0] };
+  });
 }

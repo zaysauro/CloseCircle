@@ -1,21 +1,17 @@
-# CloseCircle Web
+# CloseCircle
 
-Rede social privada baseada em círculos, amizades, mensagens e eventos colaborativos.
+Rede social fechada para pequenos círculos: momentos, fotos, conversas e planos entre as suas pessoas.
 
-## Stack
-Next.js 15, React 19, TypeScript, Tailwind CSS 4, Neon PostgreSQL, Drizzle ORM.
+Next.js 15 / React 19 / TypeScript / Tailwind 4 / Neon PostgreSQL / Drizzle / Better Auth.
 
-## Início rápido
-1. `npm install`
-2. Copie `.env.example` para `.env.local` e configure as variáveis localmente (não faça commit).
-3. `npm run dev`
-4. `npm run build` para verificar a compilação.
+## Recursos
+Cadastro por convite, círculos privados, feed com fotos, comentários e reações, amizades, mensagens diretas e de grupo, calendário, notificações e perfis. Interface responsiva com navegação para celular.
 
-## Banco
-`npx drizzle-kit generate` cria migrations. **Não execute migrações em produção sem revisão.**
+A autorização é verificada no servidor, inclusive na entrega de fotos e leitura de mensagens. Conteúdo privado não é armazenado em cache offline.
 
-## Estado atual
-Landing responsiva e esquema inicial de dados. Login e operações sociais ainda não estão habilitados: nenhuma tela demonstra dados falsos ou permite acesso sem autorização. Configure Neon e autenticação antes de implementar o feed privado.
+## Rodar
+npm ci; configure .env.local com os nomes de .env.example; npm run build; npm run dev.
 
-## Segurança
-Toda consulta privada deverá verificar sessão e participação no círculo no servidor. Não basta esconder conteúdo na interface. Nunca colocar `DATABASE_URL` ou segredos no Git.
+Consulte [configuração](docs/SETUP.md) e [plano/pendências](docs/ROADMAP.md). Migrations devem ser revisadas e testadas no branch de desenvolvimento antes de produção. Nunca comite credenciais.
+
+O envio de confirmação de e-mail e recuperação de senha exige configurar RESEND_API_KEY e AUTH_EMAIL_FROM. Sem serviço de e-mail, o acesso permanece fechado por convites e a recuperação não está disponível.

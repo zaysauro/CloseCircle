@@ -1,14 +1,210 @@
-import { pgTable,uuid,text,timestamp,primaryKey,boolean,integer,uniqueIndex } from 'drizzle-orm/pg-core';
-const id=()=>uuid('id').defaultRandom().primaryKey();
-export const profiles=pgTable('profiles',{id:id(),authUserId:text('auth_user_id').notNull().unique(),handle:text('handle').notNull().unique(),name:text('name').notNull(),bio:text('bio'),avatarUrl:text('avatar_url'),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
-export const circles=pgTable('circles',{id:id(),name:text('name').notNull(),description:text('description'),ownerId:uuid('owner_id').notNull().references(()=>profiles.id),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
-export const memberships=pgTable('circle_memberships',{circleId:uuid('circle_id').notNull().references(()=>circles.id),userId:uuid('user_id').notNull().references(()=>profiles.id),role:text('role').notNull().default('member'),joinedAt:timestamp('joined_at',{withTimezone:true}).defaultNow().notNull()},t=>[primaryKey({columns:[t.circleId,t.userId]})]);
-export const friendships=pgTable('friendships',{requesterId:uuid('requester_id').notNull().references(()=>profiles.id),addresseeId:uuid('addressee_id').notNull().references(()=>profiles.id),status:text('status').notNull().default('pending'),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()},t=>[primaryKey({columns:[t.requesterId,t.addresseeId]})]);
-export const posts=pgTable('posts',{id:id(),circleId:uuid('circle_id').notNull().references(()=>circles.id),authorId:uuid('author_id').notNull().references(()=>profiles.id),body:text('body').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull(),updatedAt:timestamp('updated_at',{withTimezone:true}).defaultNow().notNull()});
-export const comments=pgTable('comments',{id:id(),postId:uuid('post_id').notNull().references(()=>posts.id),authorId:uuid('author_id').notNull().references(()=>profiles.id),parentId:uuid('parent_id'),body:text('body').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
-export const reactions=pgTable('reactions',{id:id(),postId:uuid('post_id').references(()=>posts.id),commentId:uuid('comment_id').references(()=>comments.id),userId:uuid('user_id').notNull().references(()=>profiles.id),emoji:text('emoji').notNull()});
-export const conversations=pgTable('conversations',{id:id(),name:text('name'),isGroup:boolean('is_group').default(false).notNull(),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
-export const conversationMembers=pgTable('conversation_members',{conversationId:uuid('conversation_id').notNull().references(()=>conversations.id),userId:uuid('user_id').notNull().references(()=>profiles.id)},t=>[primaryKey({columns:[t.conversationId,t.userId]})]);
-export const messages=pgTable('messages',{id:id(),conversationId:uuid('conversation_id').notNull().references(()=>conversations.id),senderId:uuid('sender_id').notNull().references(()=>profiles.id),body:text('body').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
-export const events=pgTable('events',{id:id(),circleId:uuid('circle_id').notNull().references(()=>circles.id),creatorId:uuid('creator_id').notNull().references(()=>profiles.id),title:text('title').notNull(),description:text('description'),startsAt:timestamp('starts_at',{withTimezone:true}).notNull(),endsAt:timestamp('ends_at',{withTimezone:true}),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
-export const notifications=pgTable('notifications',{id:id(),userId:uuid('user_id').notNull().references(()=>profiles.id),kind:text('kind').notNull(),body:text('body').notNull(),read:boolean('read').default(false).notNull(),createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull()});
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  primaryKey,
+  boolean,
+  integer,
+  uniqueIndex,
+  index,
+} from "drizzle-orm/pg-core";
+const id = () => uuid("id").defaultRandom().primaryKey();
+export const profiles = pgTable("profiles", {
+  id: id(),
+  authUserId: text("auth_user_id").notNull().unique(),
+  handle: text("handle").notNull().unique(),
+  name: text("name").notNull(),
+  bio: text("bio"),
+  avatarUrl: text("avatar_url"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const circles = pgTable("circles", {
+  id: id(),
+  name: text("name").notNull(),
+  description: text("description"),
+  ownerId: uuid("owner_id")
+    .notNull()
+    .references(() => profiles.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const memberships = pgTable(
+  "circle_memberships",
+  {
+    circleId: uuid("circle_id")
+      .notNull()
+      .references(() => circles.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id),
+    role: text("role").notNull().default("member"),
+    joinedAt: timestamp("joined_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.circleId, t.userId] })],
+);
+export const friendships = pgTable(
+  "friendships",
+  {
+    requesterId: uuid("requester_id")
+      .notNull()
+      .references(() => profiles.id),
+    addresseeId: uuid("addressee_id")
+      .notNull()
+      .references(() => profiles.id),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.requesterId, t.addresseeId] })],
+);
+export const posts = pgTable("posts", {
+  id: id(),
+  circleId: uuid("circle_id")
+    .notNull()
+    .references(() => circles.id),
+  authorId: uuid("author_id")
+    .notNull()
+    .references(() => profiles.id),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const comments = pgTable("comments", {
+  id: id(),
+  postId: uuid("post_id")
+    .notNull()
+    .references(() => posts.id, { onDelete: "cascade" }),
+  authorId: uuid("author_id")
+    .notNull()
+    .references(() => profiles.id),
+  parentId: uuid("parent_id"),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const reactions = pgTable(
+  "reactions",
+  {
+    id: id(),
+    postId: uuid("post_id").references(() => posts.id, { onDelete: "cascade" }),
+    commentId: uuid("comment_id").references(() => comments.id, {
+      onDelete: "cascade",
+    }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id),
+    emoji: text("emoji").notNull(),
+  },
+  (t) => [
+    uniqueIndex("reactions_post_user_emoji").on(t.postId, t.userId, t.emoji),
+  ],
+);
+export const conversations = pgTable("conversations", {
+  id: id(),
+  circleId: uuid("circle_id")
+    .unique()
+    .references(() => circles.id),
+  name: text("name"),
+  isGroup: boolean("is_group").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const conversationMembers = pgTable(
+  "conversation_members",
+  {
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id),
+  },
+  (t) => [primaryKey({ columns: [t.conversationId, t.userId] })],
+);
+export const messages = pgTable("messages", {
+  id: id(),
+  conversationId: uuid("conversation_id")
+    .notNull()
+    .references(() => conversations.id),
+  senderId: uuid("sender_id")
+    .notNull()
+    .references(() => profiles.id),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const events = pgTable("events", {
+  id: id(),
+  circleId: uuid("circle_id")
+    .notNull()
+    .references(() => circles.id),
+  creatorId: uuid("creator_id")
+    .notNull()
+    .references(() => profiles.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const notifications = pgTable("notifications", {
+  id: id(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => profiles.id),
+  kind: text("kind").notNull(),
+  body: text("body").notNull(),
+  read: boolean("read").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export const invites = pgTable("circle_invites", {
+  id: id(),
+  circleId: uuid("circle_id")
+    .notNull()
+    .references(() => circles.id),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => profiles.id),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedBy: uuid("used_by").references(() => profiles.id),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  revoked: boolean("revoked").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+export const attachments = pgTable("attachments", {
+  id: id(),
+  circleId: uuid("circle_id")
+    .notNull()
+    .references(() => circles.id),
+  uploaderId: uuid("uploader_id")
+    .notNull()
+    .references(() => profiles.id),
+  postId: uuid("post_id").references(() => posts.id, { onDelete: "cascade" }),
+  mime: text("mime").notNull(),
+  data: text("data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
