@@ -109,6 +109,25 @@ export async function POST(req: Request) {
           throw new ApiError("Convite expirado, revogado ou já utilizado", 410);
         return { circleId: rows[0].circle_id };
       }
+      case "add-member": {
+        const c = uuid(d.circleId),
+          handle = text(d.handle, 41).replace(/^@/, "").toLowerCase();
+        await member(c, me.id, true);
+        const rows = await sql`with added as (
+          insert into circle_memberships(circle_id,user_id)
+          select ${c}::uuid,p.id from profiles p where p.handle=${handle} and p.id<>${me.id}::uuid
+          and exists(select 1 from friendships f where f.status='accepted' and ((f.requester_id=${me.id}::uuid and f.addressee_id=p.id) or (f.addressee_id=${me.id}::uuid and f.requester_id=p.id)))
+          and exists(select 1 from circle_memberships m where m.circle_id=${c}::uuid and m.user_id=${me.id}::uuid and m.role='owner')
+          on conflict do nothing returning user_id
+        ),notice as (insert into notifications(user_id,kind,body) select user_id,'circle','Um amigo adicionou você a um círculo privado.' from added returning id)
+        select user_id from added`;
+        if (!rows.length)
+          throw new ApiError(
+            "Use o @ de um amigo com amizade aceita que ainda não participa deste círculo.",
+            409,
+          );
+        return { ok: true };
+      }
       case "remove-member": {
         const c = uuid(d.circleId),
           id = uuid(d.userId);

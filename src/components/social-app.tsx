@@ -27,10 +27,13 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { AccountRecovery } from "@/components/account-recovery";
 type Circle = { id: string; name: string; description: string; role: string };
 type Profile = { id: string; name: string; handle: string; bio: string };
 type Post = {
   id: string;
+  circle_id: string;
+  circle_name: string;
   author_id: string;
   author_name: string;
   body: string;
@@ -84,7 +87,7 @@ type Invite = {
   revoked: boolean;
 };
 const tabs = [
-  { id: "feed", label: "Meu feed", icon: Home },
+  { id: "feed", label: "Feed geral", icon: Home },
   { id: "circles", label: "Círculos", icon: Users },
   { id: "messages", label: "Mensagens", icon: MessageCircle },
   { id: "events", label: "Calendário", icon: CalendarDays },
@@ -125,6 +128,13 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
   const [tab, setTab] = useState("feed"),
     [circles, setCircles] = useState<Circle[]>([]),
     [selected, setSelected] = useState(""),
+    [feedCircle, setFeedCircle] = useState(""),
+    [nextCursor, setNextCursor] = useState<string | null>(null),
+    [feedLoading, setFeedLoading] = useState(false),
+    [moreLoading, setMoreLoading] = useState(false),
+    [recoveryConfigured, setRecoveryConfigured] = useState<boolean | null>(
+      null,
+    ),
     [profile, setProfile] = useState<Profile>({
       id: meId,
       name: "",
@@ -175,23 +185,47 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
     setFriends(f.friends);
     setConversations(co.conversations);
   }, []);
-  const loadPosts = useCallback(async () => {
-    const request = ++postRequest.current;
+  const loadFeedPage = useCallback(
+    async (cursor: string | null = null) => {
+      const request = ++postRequest.current;
+      if (cursor) setMoreLoading(true);
+      else setFeedLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (feedCircle) params.set("circleId", feedCircle);
+        if (cursor) params.set("cursor", cursor);
+        const result = await api<{ posts: Post[]; nextCursor: string | null }>(
+          "/api/posts" + (params.size ? "?" + params.toString() : ""),
+        );
+        if (request !== postRequest.current) return;
+        setPosts((old) =>
+          cursor
+            ? [
+                ...old,
+                ...result.posts.filter((p) => !old.some((x) => x.id === p.id)),
+              ]
+            : result.posts,
+        );
+        setNextCursor(result.nextCursor);
+      } finally {
+        if (request === postRequest.current) {
+          setFeedLoading(false);
+          setMoreLoading(false);
+        }
+      }
+    },
+    [feedCircle],
+  );
+  const loadPosts = useCallback(() => loadFeedPage(), [loadFeedPage]);
+  const loadMembers = useCallback(async () => {
     if (!selected) {
-      setPosts([]);
       setMembers([]);
       return;
     }
-    const [p, m] = await Promise.all([
-      api<{ posts: Post[] }>("/api/posts?circleId=" + selected),
-      api<{ members: Member[] }>(
-        "/api/social?resource=members&circleId=" + selected,
-      ),
-    ]);
-    if (request === postRequest.current) {
-      setPosts(p.posts);
-      setMembers(m.members);
-    }
+    const result = await api<{ members: Member[] }>(
+      "/api/social?resource=members&circleId=" + selected,
+    );
+    return result.members;
   }, [selected]);
   const loadMessages = useCallback(async () => {
     const request = ++messageRequest.current;
@@ -205,6 +239,17 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
     if (request === messageRequest.current) setMessages(result.messages);
   }, [conversation]);
   useEffect(() => {
+    let active = true;
+    api<{ configured: boolean }>("/api/account/recovery")
+      .then((r) => {
+        if (active) setRecoveryConfigured(r.configured);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [tab]);
+  useEffect(() => {
     refresh()
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -217,12 +262,31 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
   }, [refresh]);
   useEffect(() => {
     setPosts([]);
+    setNextCursor(null);
+    loadPosts().catch((e) => setError(e.message));
+    return () => {
+      ++postRequest.current;
+    };
+  }, [loadPosts]);
+  useEffect(() => {
+    let active = true;
     setMembers([]);
     setInviteLink("");
-    setImage("");
-    setBody("");
-    loadPosts().catch((e) => setError(e.message));
-  }, [loadPosts]);
+    loadMembers()
+      .then((result) => {
+        if (active && result) setMembers(result);
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [loadMembers]);
+  useEffect(() => {
+    if (feedCircle && !circles.some((c) => c.id === feedCircle))
+      setFeedCircle("");
+  }, [circles, feedCircle]);
   useEffect(() => {
     let active = true;
     const update = () =>
@@ -279,9 +343,11 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
       });
       await refresh();
       setSelected(j.circle.id);
+      setFeedCircle("");
+      await loadPosts();
       setNewCircle(false);
       setTab("feed");
-    }, "Seu círculo está pronto. Convide suas pessoas.");
+    }, "Seu círculo está pronto. Você já pode publicar e adicionar seus amigos.");
   }
   async function publish(e: FormEvent) {
     e.preventDefault();
@@ -328,11 +394,14 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
       const j = await action({ action: "join", token });
       await refresh();
       setSelected(j.circleId);
+      setFeedCircle("");
+      await loadPosts();
       setJoinToken("");
       setTab("feed");
     }, "Você entrou no círculo.");
   }
   function nav(id: string) {
+    if (id === "feed") setFeedCircle("");
     setTab(id);
     setError("");
     setStatus("");
@@ -374,7 +443,8 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
               className={selected === c.id ? "selected" : ""}
               onClick={() => {
                 setSelected(c.id);
-                nav("feed");
+                setFeedCircle(c.id);
+                setTab("feed");
               }}
             >
               <span className={"cc-circle-icon color-" + (i % 4)}>
@@ -425,6 +495,8 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                 run(async () => {
                   await refresh();
                   await loadPosts();
+                  const m = await loadMembers();
+                  if (m) setMembers(m);
                   await loadMessages();
                 })
               }
@@ -450,12 +522,15 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                 <p className="cc-eyebrow">MENOS EXPOSIÇÃO. MAIS CONEXÃO.</p>
                 <h1>
                   {tab === "feed"
-                    ? "Perto de quem importa."
+                    ? feedCircle
+                      ? circles.find((c) => c.id === feedCircle)?.name ||
+                        "Seu círculo"
+                      : "Seu mundo, em um só feed."
                     : tabs.find((t) => t.id === tab)?.label}
                 </h1>
                 <p>
                   {tab === "feed"
-                    ? "Pequenos momentos. As suas pessoas. Um lugar só de vocês."
+                    ? "Os momentos de todos os seus círculos, reunidos só para você."
                     : "Tudo acontece dentro do seu CloseCircle."}
                 </p>
               </div>
@@ -489,10 +564,19 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                 {tab === "feed" && (
                   <>
                     <div className="cc-circle-tabs">
+                      <button
+                        className={!feedCircle ? "active" : ""}
+                        onClick={() => setFeedCircle("")}
+                      >
+                        <Home size={13} /> Todos os círculos
+                      </button>
                       {circles.map((c) => (
                         <button
-                          className={selected === c.id ? "active" : ""}
-                          onClick={() => setSelected(c.id)}
+                          className={feedCircle === c.id ? "active" : ""}
+                          onClick={() => {
+                            setFeedCircle(c.id);
+                            setSelected(c.id);
+                          }}
                           key={c.id}
                         >
                           <LockKeyhole size={12} />
@@ -503,12 +587,45 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                         <Plus size={14} /> Novo círculo
                       </button>
                     </div>
+                    {recoveryConfigured === false && (
+                      <div className="cc-card cc-recovery-banner">
+                        <div>
+                          <strong>Uma conta só sua, protegida por você.</strong>
+                          <p>
+                            Guarde sua chave de recuperação para redefinir a
+                            senha mesmo sem receber e-mails.
+                          </p>
+                        </div>
+                        <button
+                          className="cc-secondary"
+                          onClick={() => nav("profile")}
+                        >
+                          Proteger minha conta
+                        </button>
+                      </div>
+                    )}
                     {current ? (
                       <>
                         <form
                           onSubmit={publish}
                           className="cc-card cc-composer"
                         >
+                          <label className="cc-publish-destination">
+                            Compartilhar em
+                            <select
+                              aria-label="Círculo da publicação"
+                              value={selected}
+                              onChange={(e) => setSelected(e.target.value)}
+                            >
+                              {circles.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                            <LockKeyhole size={13} />
+                            <span>Somente integrantes</span>
+                          </label>
                           <div className="flex gap-3">
                             <span className="cc-avatar">
                               {initials(profile.name)}
@@ -560,16 +677,22 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                           </footer>
                         </form>
                         <div className="cc-feed-label">
-                          <span>NO SEU CÍRCULO</span>
+                          <span>
+                            {feedCircle ? "NESTE CÍRCULO" : "NO SEU FEED GERAL"}
+                          </span>
                           <span>Mais recentes</span>
                         </div>
-                        {posts.length ? (
+                        {feedLoading ? (
+                          <div className="cc-card cc-empty" role="status">
+                            Reunindo os momentos dos seus círculos…
+                          </div>
+                        ) : posts.length ? (
                           posts.map((p) => (
                             <PostCard
                               key={p.id}
                               post={p}
                               meId={meId}
-                              circleName={current.name}
+                              circleName={p.circle_name}
                               busy={busy}
                               run={run}
                               reload={loadPosts}
@@ -580,9 +703,20 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                             <span>✦</span>
                             <h2>As melhores histórias começam aqui.</h2>
                             <p>
-                              Compartilhe o primeiro momento do seu círculo.
+                              {feedCircle
+                                ? "Compartilhe o primeiro momento deste círculo."
+                                : "Publique seu primeiro momento ou adicione amigos aos seus círculos. As novidades deles aparecerão aqui."}
                             </p>
                           </div>
+                        )}
+                        {nextCursor && (
+                          <button
+                            className="cc-secondary cc-load-more"
+                            disabled={busy || moreLoading}
+                            onClick={() => run(() => loadFeedPage(nextCursor))}
+                          >
+                            {moreLoading ? "Carregando…" : "Ver mais momentos"}
+                          </button>
                         )}
                       </>
                     ) : (
@@ -590,7 +724,8 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                         <span>◎</span>
                         <h2>Um lugar para as suas pessoas.</h2>
                         <p>
-                          Crie seu primeiro círculo ou entre com um convite.
+                          Crie seu primeiro círculo agora, sem convite, e comece
+                          a compartilhar com seus amigos.
                         </p>
                         <button
                           className="cc-primary"
@@ -610,22 +745,47 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                 )}
                 {tab === "circles" && (
                   <>
-                    <form onSubmit={join} className="cc-card cc-form">
-                      <h2>Recebeu um convite?</h2>
-                      <p>Cole o link ou código para entrar no círculo.</p>
-                      <label>
-                        Convite
-                        <input
-                          required
-                          value={joinToken}
-                          onChange={(e) => setJoinToken(e.target.value)}
-                          placeholder="Link ou código do convite"
-                        />
-                      </label>
-                      <button className="cc-primary" disabled={busy}>
-                        Entrar no círculo
+                    <div className="cc-card cc-form">
+                      <h2>Seus grupos, do seu jeito.</h2>
+                      <p>
+                        Crie um círculo e adicione amigos pelo @. Cada grupo tem
+                        publicações e conversas privadas.
+                      </p>
+                      <button
+                        className="cc-primary"
+                        onClick={() => setNewCircle(true)}
+                      >
+                        <Plus size={15} /> Criar um círculo
                       </button>
-                    </form>
+                      <button
+                        className="cc-secondary"
+                        onClick={() => nav("friends")}
+                      >
+                        Encontrar um amigo pelo @
+                      </button>
+                    </div>
+                    <details
+                      className="cc-card"
+                      open={joinToken ? true : undefined}
+                    >
+                      <summary>Tenho um link de convite (opcional)</summary>
+                      <form onSubmit={join} className="cc-form mt-4">
+                        <h2>Recebeu um convite?</h2>
+                        <p>Cole o link ou código para entrar no círculo.</p>
+                        <label>
+                          Convite
+                          <input
+                            required
+                            value={joinToken}
+                            onChange={(e) => setJoinToken(e.target.value)}
+                            placeholder="Link ou código do convite"
+                          />
+                        </label>
+                        <button className="cc-primary" disabled={busy}>
+                          Entrar no círculo
+                        </button>
+                      </form>
+                    </details>
                     <div className="cc-circle-tabs">
                       {circles.map((c) => (
                         <button
@@ -662,8 +822,59 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                         </div>
                         {current.role === "owner" ? (
                           <>
+                            <form
+                              className="cc-form cc-add-member"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                const form = e.currentTarget,
+                                  f = new FormData(form);
+                                run(async () => {
+                                  await action({
+                                    action: "add-member",
+                                    circleId: selected,
+                                    handle: f.get("handle"),
+                                  });
+                                  form.reset();
+                                  const m = await loadMembers();
+                                  if (m) setMembers(m);
+                                  await refresh();
+                                }, "Amigo adicionado ao círculo, sem convite.");
+                              }}
+                            >
+                              <label>
+                                Adicionar amigo ao círculo
+                                <input
+                                  name="handle"
+                                  required
+                                  maxLength={41}
+                                  placeholder="@identificador do amigo"
+                                  list="cc-circle-friends"
+                                />
+                              </label>
+                              <datalist id="cc-circle-friends">
+                                {friends
+                                  .filter(
+                                    (f) =>
+                                      f.status === "accepted" &&
+                                      !members.some((m) => m.id === f.id),
+                                  )
+                                  .map((f) => (
+                                    <option value={f.handle} key={f.id}>
+                                      {f.name}
+                                    </option>
+                                  ))}
+                              </datalist>
+                              <small className="cc-muted">
+                                A amizade precisa estar aceita na aba Amigos.
+                                Quem entrar verá as publicações e conversas
+                                deste círculo.
+                              </small>
+                              <button className="cc-primary" disabled={busy}>
+                                Adicionar ao círculo
+                              </button>
+                            </form>
                             <button
-                              className="cc-primary"
+                              className="cc-secondary"
                               disabled={busy}
                               onClick={() =>
                                 run(async () => {
@@ -759,6 +970,10 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                                         circleId: selected,
                                         userId: m.id,
                                       });
+                                      const updatedMembers =
+                                        await loadMembers();
+                                      if (updatedMembers)
+                                        setMembers(updatedMembers);
                                       await loadPosts();
                                     });
                                 }}
@@ -1028,6 +1243,26 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                       }}
                     >
                       <h2>Mais perto, pelo nome.</h2>
+                      <div className="cc-invite-link">
+                        <input
+                          aria-label="Meu identificador"
+                          readOnly
+                          value={"@" + profile.handle}
+                        />
+                        <button
+                          type="button"
+                          className="cc-secondary"
+                          onClick={() =>
+                            run(async () => {
+                              await navigator.clipboard.writeText(
+                                "@" + profile.handle,
+                              );
+                            }, "Seu @ foi copiado. Compartilhe com seus amigos.")
+                          }
+                        >
+                          Copiar meu @
+                        </button>
+                      </div>
                       <p>
                         Peça o @ de uma pessoa para adicioná-la. Não há uma
                         lista pública de usuários.
@@ -1152,92 +1387,95 @@ export function SocialApp({ meId, email }: { meId: string; email: string }) {
                   </div>
                 )}
                 {tab === "profile" && (
-                  <form
-                    className="cc-card cc-form"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      run(async () => {
-                        await action({ action: "profile", ...profile });
-                        await refresh();
-                      }, "Perfil atualizado.");
-                    }}
-                  >
-                    <div className="cc-profile-heading">
-                      <span className="cc-avatar large">
-                        {initials(profile.name)}
-                      </span>
-                      <div>
-                        <h2>Do seu jeito.</h2>
-                        <p>Seu perfil aparece para as suas conexões.</p>
+                  <>
+                    <form
+                      className="cc-card cc-form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        run(async () => {
+                          await action({ action: "profile", ...profile });
+                          await refresh();
+                        }, "Perfil atualizado.");
+                      }}
+                    >
+                      <div className="cc-profile-heading">
+                        <span className="cc-avatar large">
+                          {initials(profile.name)}
+                        </span>
+                        <div>
+                          <h2>Do seu jeito.</h2>
+                          <p>Seu perfil aparece para as suas conexões.</p>
+                        </div>
                       </div>
-                    </div>
-                    <label>
-                      Nome
-                      <input
-                        required
-                        maxLength={100}
-                        value={profile.name}
-                        onChange={(e) =>
-                          setProfile({ ...profile, name: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Seu @
-                      <input
-                        required
-                        minLength={3}
-                        maxLength={40}
-                        pattern="[a-z0-9_]{3,40}"
-                        value={profile.handle}
-                        onChange={(e) =>
-                          setProfile({
-                            ...profile,
-                            handle: e.target.value.toLowerCase(),
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Sobre você
-                      <textarea
-                        maxLength={500}
-                        value={profile.bio || ""}
-                        onChange={(e) =>
-                          setProfile({ ...profile, bio: e.target.value })
-                        }
-                      />
-                    </label>
-                    <p className="cc-muted">Conta: {email}</p>
-                    <div className="cc-circle-tabs">
-                      <button type="button" onClick={() => nav("friends")}>
-                        Amigos
+                      <label>
+                        Nome
+                        <input
+                          required
+                          maxLength={100}
+                          value={profile.name}
+                          onChange={(e) =>
+                            setProfile({ ...profile, name: e.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Seu @
+                        <input
+                          required
+                          minLength={3}
+                          maxLength={40}
+                          pattern="[a-z0-9_]{3,40}"
+                          value={profile.handle}
+                          onChange={(e) =>
+                            setProfile({
+                              ...profile,
+                              handle: e.target.value.toLowerCase(),
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Sobre você
+                        <textarea
+                          maxLength={500}
+                          value={profile.bio || ""}
+                          onChange={(e) =>
+                            setProfile({ ...profile, bio: e.target.value })
+                          }
+                        />
+                      </label>
+                      <p className="cc-muted">Conta: {email}</p>
+                      <div className="cc-circle-tabs">
+                        <button type="button" onClick={() => nav("friends")}>
+                          Amigos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => nav("notifications")}
+                        >
+                          Notificações {unread > 0 ? "(" + unread + ")" : ""}
+                        </button>
+                      </div>
+                      <button disabled={busy} className="cc-primary">
+                        Salvar perfil
                       </button>
                       <button
                         type="button"
-                        onClick={() => nav("notifications")}
+                        className="cc-secondary"
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            const r = await authClient.signOut();
+                            if (r.error) throw Error("Não foi possível sair");
+                            window.location.assign("/entrar");
+                          })
+                        }
                       >
-                        Notificações {unread > 0 ? "(" + unread + ")" : ""}
+                        <LogOut size={16} /> Sair da conta
                       </button>
-                    </div>
-                    <button disabled={busy} className="cc-primary">
-                      Salvar perfil
-                    </button>
-                    <button
-                      type="button"
-                      className="cc-secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        run(async () => {
-                          const r = await authClient.signOut();
-                          if (r.error) throw Error("Não foi possível sair");
-                          window.location.assign("/entrar");
-                        })
-                      }
-                    >
-                      <LogOut size={16} /> Sair da conta
-                    </button>
-                  </form>
+                    </form>
+                    <AccountRecovery />
+                  </>
                 )}
               </>
             )}

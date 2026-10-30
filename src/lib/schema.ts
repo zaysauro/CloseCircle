@@ -46,7 +46,10 @@ export const memberships = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (t) => [primaryKey({ columns: [t.circleId, t.userId] })],
+  (t) => [
+    primaryKey({ columns: [t.circleId, t.userId] }),
+    index("memberships_user_circle").on(t.userId, t.circleId),
+  ],
 );
 export const friendships = pgTable(
   "friendships",
@@ -64,22 +67,29 @@ export const friendships = pgTable(
   },
   (t) => [primaryKey({ columns: [t.requesterId, t.addresseeId] })],
 );
-export const posts = pgTable("posts", {
-  id: id(),
-  circleId: uuid("circle_id")
-    .notNull()
-    .references(() => circles.id),
-  authorId: uuid("author_id")
-    .notNull()
-    .references(() => profiles.id),
-  body: text("body").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const posts = pgTable(
+  "posts",
+  {
+    id: id(),
+    circleId: uuid("circle_id")
+      .notNull()
+      .references(() => circles.id),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => profiles.id),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("posts_circle_created_id").on(t.circleId, t.createdAt, t.id),
+    index("posts_created_id").on(t.createdAt, t.id),
+  ],
+);
 export const comments = pgTable("comments", {
   id: id(),
   postId: uuid("post_id")
@@ -207,4 +217,15 @@ export const attachments = pgTable("attachments", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+});
+
+export const accountRecovery = pgTable("account_recovery", {
+  profileId: uuid("profile_id")
+    .primaryKey()
+    .references(() => profiles.id),
+  codeHash: text("code_hash").notNull().unique(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });

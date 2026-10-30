@@ -2,29 +2,28 @@
 
 Rede social independente da Kumo, organizada em pequenos círculos privados. Next.js / React / TypeScript / Tailwind, Neon PostgreSQL, Drizzle e Better Auth, hospedagem Vercel.
 
-## Entregue nesta etapa
-- Banco exclusivo CloseCircle; branches production e development; credenciais por ambiente.
-- Cadastro fechado por convite e criação inicial restrita a BOOTSTRAP_EMAIL; login, sessão, logout e rate limiting persistido no banco.
+## Entregue
+- Cadastro aberto por e-mail e senha, sem convite nem link inicial secreto; login, sessão, logout, confirmação de senha no formulário e rate limiting persistido no banco.
+- Feed geral cronológico com as publicações de todos os círculos do usuário, filtro por círculo e identificação da origem de cada post. Paginação por data + id, inclusive em posts com a mesma data.
+- Cada publicação tem um círculo de destino explícito. O feed geral não torna posts visíveis a pessoas de fora dos círculos.
+- Criação de círculos por qualquer usuário autenticado. O responsável pode adicionar amigos com amizade aceita pelo @, sem gerar convites. Quem entrar passa a ver o histórico do grupo.
+- Convites com validade de 7 dias, uso único e revogação continuam como recurso opcional. Remoção de membros corta novas leituras de posts, fotos e chat, inclusive pelo feed geral.
 - Perfil com nome, identificador e biografia; amizades por identificador exato e aceite.
-- Criação de círculos; convites aleatórios de uso único, expiração de 7 dias e revogação; remoção de integrantes e saída do grupo.
-- Feed cronológico, texto, fotos PNG/JPEG/WebP de até 2 MB; comentários e múltiplas reações.
-- Exclusão de publicação pelo autor, incluindo suas interações e imagens.
-- Conversas privadas entre amigos e conversas do círculo; atualização a cada 8 segundos enquanto abertas.
-- Agenda compartilhada por círculo; criação e exclusão pelo criador.
-- Notificações internas de eventos e solicitações de amizade; marcação de leitura.
-- Interface desktop com lateral/feed/painel direito e navegação inferior no celular; manifesto para abertura como app.
-- Autorização no servidor para conteúdo, imagens e mensagens; remoção de integrante corta novas leituras do círculo. Nenhum cache offline de conteúdo privado.
-- Fluxos de confirmação de e-mail e recuperação implementados, ativados quando o serviço de envio estiver configurado.
+- Fotos PNG/JPEG/WebP de até 2 MB; comentários, múltiplas reações e exclusão pelo autor.
+- Conversas privadas entre amigos e conversas do círculo, atualizadas a cada 8 segundos enquanto abertas.
+- Agenda por círculo e notificações internas para eventos, amizades e adição direta a grupos.
+- Recuperação da senha por chave, independente de e-mail. O usuário confirma a senha atual para gerar a chave; guarda-a fora do site. No banco fica apenas o hash. Ao recuperar a conta, a chave é substituída e as sessões anteriores são encerradas. Tentativas têm limite persistido no banco.
+- Interface responsiva, navegação inferior no celular e manifesto de app. Sem cache offline de conteúdo privado.
+- Neon exclusivo com produção/desenvolvimento separados; migrations revisadas, histórico com checksum e índices do feed.
 
 ## Dependência externa pendente
-Configurar RESEND_API_KEY e AUTH_EMAIL_FROM com remetente verificado. Sem essas credenciais, a confirmação de e-mail não é exigida e a recuperação informa indisponibilidade. Cadastro continua restrito por convite; a primeira conta deve usar o e-mail de bootstrap. Não afirmar que o envio de e-mail está operacional antes de testar entrega real.
+Confirmação e recuperação POR E-MAIL exigem RESEND_API_KEY e AUTH_EMAIL_FROM com remetente verificado. Sem o serviço, o cadastro funciona normalmente e a recuperação usa a chave previamente salva. Sem acesso à senha, à chave ou a um canal de e-mail configurado, não há recuperação automática. Não afirmar que endereços foram verificados ou que e-mails estão sendo entregues antes de testar a entrega real.
 
-## Etapas posteriores do planejamento original
-- CloseCircle Work: organizações isoladas, equipes, comunicados e escalas.
-- Português e japonês (a interface atual está em português).
+## Etapas posteriores
+- CloseCircle Work: organizações, equipes, comunicados e escalas.
+- Japonês; interface atual em português.
 - Políticas de retenção e moderação; exportação/exclusão de conta.
-- Uploads de vídeo/documentos e armazenamento de objetos para escala. As fotos atuais são armazenadas de forma privada no Postgres, com limite de 2 MB por publicação.
-- Notificações push, presença e WebSockets; mensagens atuais usam polling.
-- Avatar personalizado e stickers do histórico do app iOS: ainda não portados para web.
+- Vídeos/documentos e armazenamento de objetos para escala. Fotos atuais em Postgres com limite de 2 MB por publicação.
+- Push, presença, WebSockets, avatar personalizado e stickers.
 
 Nenhum limite numérico de integrantes foi recuperado do plano; esta versão não inventa um teto para os círculos.

@@ -3,15 +3,53 @@ import { endpoint, member, uuid, text, ApiError } from "@/lib/http";
 export const runtime = "nodejs";
 export async function GET(req: Request) {
   return endpoint(async (me) => {
-    const c = uuid(new URL(req.url).searchParams.get("circleId"));
-    await member(c, me.id);
-    const posts =
-      await getSql()`select p.id,p.author_id,p.body,p.created_at,pr.name as author_name,
- (select count(*)::int from comments where post_id=p.id) as comment_count,
- coalesce((select json_agg(json_build_object('emoji',r.emoji,'user_id',r.user_id)) from reactions r where r.post_id=p.id),'[]') as reactions,
- coalesce((select json_agg(a.id) from attachments a where a.post_id=p.id),'[]') as attachments
- from posts p join profiles pr on pr.id=p.author_id where p.circle_id=${c}::uuid order by p.created_at desc limit 50`;
-    return { posts };
+    const params = new URL(req.url).searchParams;
+    const circleId = params.get("circleId");
+    const c = circleId === null ? null : uuid(circleId);
+    if (c) await member(c, me.id);
+    let before: string | null = null,
+      beforeId: string | null = null;
+    const cursor = params.get("cursor");
+    if (cursor) {
+      if (cursor.length > 512) throw new ApiError("Página inválida");
+      try {
+        const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString());
+        if (
+          !Array.isArray(parsed) ||
+          parsed.length !== 2 ||
+          typeof parsed[0] !== "string" ||
+          !/^\d{4}-\d{2}-\d{2}T/.test(parsed[0]) ||
+          !Number.isFinite(Date.parse(parsed[0]))
+        )
+          throw Error();
+        before = parsed[0];
+        beforeId = uuid(parsed[1]);
+      } catch {
+        throw new ApiError("Página inválida");
+      }
+    }
+    const rows =
+      await getSql()`select p.id,p.circle_id,c.name as circle_name,p.author_id,p.body,p.created_at,pr.name as author_name,
+      to_char(p.created_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_created_at,
+      (select count(*)::int from comments where post_id=p.id) as comment_count,
+      coalesce((select json_agg(json_build_object('emoji',r.emoji,'user_id',r.user_id)) from reactions r where r.post_id=p.id),'[]') as reactions,
+      coalesce((select json_agg(a.id) from attachments a where a.post_id=p.id),'[]') as attachments
+      from posts p join profiles pr on pr.id=p.author_id join circles c on c.id=p.circle_id
+      where exists(select 1 from circle_memberships m where m.circle_id=p.circle_id and m.user_id=${me.id}::uuid)
+      and (${c}::uuid is null or p.circle_id=${c}::uuid)
+      and (${before}::timestamptz is null or (p.created_at,p.id)<(${before}::timestamptz,${beforeId}::uuid))
+      order by p.created_at desc,p.id desc limit 26`;
+    const page = rows.slice(0, 25),
+      last = page.at(-1);
+    return {
+      posts: page.map(({ cursor_created_at, ...post }) => post),
+      nextCursor:
+        rows.length > 25 && last
+          ? Buffer.from(
+              JSON.stringify([last.cursor_created_at, last.id]),
+            ).toString("base64url")
+          : null,
+    };
   });
 }
 export async function POST(req: Request) {

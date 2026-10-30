@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { Pool } from "@neondatabase/serverless";
 import { nextCookies } from "better-auth/next-js";
 import { mailConfigured, sendAuthEmail } from "./mail";
+import { recoveryContext } from "./recovery";
 const url = process.env.DATABASE_URL;
 export const auth = betterAuth({
   database: url ? new Pool({ connectionString: url }) : undefined,
@@ -10,23 +11,19 @@ export const auth = betterAuth({
     minPasswordLength: 10,
     maxPasswordLength: 128,
     requireEmailVerification: mailConfigured,
-    ...(mailConfigured
-      ? {
-          sendResetPassword: async ({
-            user,
-            url,
-          }: {
-            user: { email: string };
-            url: string;
-          }) => {
-            await sendAuthEmail(
-              user.email,
-              "Redefinir sua senha no CloseCircle",
-              url,
-            );
-          },
-        }
-      : {}),
+    revokeSessionsOnPasswordReset: true,
+    sendResetPassword: async ({ user, url, token }) => {
+      const recovery = recoveryContext.getStore();
+      if (recovery) {
+        recovery.token = token;
+        return;
+      }
+      await sendAuthEmail(
+        user.email,
+        "Redefinir sua senha no CloseCircle",
+        url,
+      );
+    },
   },
   ...(mailConfigured
     ? {

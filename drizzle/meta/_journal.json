@@ -15,6 +15,20 @@
       "when": 1793365503248,
       "tag": "0001_nervous_sentry",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793367483813,
+      "tag": "0002_aspiring_raza",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793367573368,
+      "tag": "0003_glossy_mattie_franklin",
+      "breakpoints": true
     }
   ]
 }
